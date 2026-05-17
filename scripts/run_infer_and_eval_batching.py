@@ -254,7 +254,7 @@ if __name__ == "__main__":
         "--multi_agent", action="store_true", help="use multi agent to infer"
     )
     parser.add_argument(
-        "--thread_num", type=int, default=4, help="thread num to run infer and eval"
+        "--thread_num", type=int, default=1, help="thread num to run infer and eval"
     )
 
     args = parser.parse_args()
