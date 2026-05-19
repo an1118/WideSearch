@@ -5,6 +5,7 @@ run infer and eval batching.
 """
 
 import asyncio
+import contextlib
 import dataclasses
 import json
 import os
@@ -33,6 +34,8 @@ from src.evaluation.data_loader import (
     WideSearchResponseLoader,
 )
 from src.evaluation.evaluation import EvaluationResult, evaluate_single_query
+from src.utils.compact_client import delete_session, session_context
+from src.utils.config import model_config
 
 logger.remove()
 logger.add(sys.stderr, level="INFO")
@@ -72,53 +75,69 @@ class SingleTask:
             logger.info(f"response_path {self.response_path} exists, skip")
             return self.load_response()
 
-        logger.info(f"infer start, instance_id: {self.query.instance_id}")
-        start_time = time.time()
-        if self.multi_agent:
-            tools = get_multi_agent_tools(
-                f"{self.query.instance_id}_{self.trial_idx}_sub_agent",
-                self.model_config_name,
-                self.tools,
-                get_tools_api_description(self.query.language, list(self.tools.keys())),
-                get_system_prompt(self.query.language),
+        # For the compact backend, open a pod-side session that all LLM calls
+        # in this trajectory will share via a contextvar. On exit we explicitly
+        # DELETE the session (``session_context`` only manages the contextvar,
+        # not the pod-side state). ``ExitStack`` lets non-compact backends fall
+        # through the same block without an empty/dummy context manager.
+        cfg = model_config.get(self.model_config_name, {})
+        is_compact = cfg.get("model_name", "").startswith("compact-")
+
+        with contextlib.ExitStack() as stack:
+            if is_compact:
+                compact_base_url = cfg["base_url"]
+                sid = stack.enter_context(
+                    session_context(self.query.instance_id, self.trial_idx)
+                )
+                stack.callback(delete_session, sid, compact_base_url)
+
+            logger.info(f"infer start, instance_id: {self.query.instance_id}")
+            start_time = time.time()
+            if self.multi_agent:
+                tools = get_multi_agent_tools(
+                    f"{self.query.instance_id}_{self.trial_idx}_sub_agent",
+                    self.model_config_name,
+                    self.tools,
+                    get_tools_api_description(self.query.language, list(self.tools.keys())),
+                    get_system_prompt(self.query.language),
+                )
+                system_prompt = get_multi_agent_system_prompt(self.query.language)
+            else:
+                tools = self.tools
+                system_prompt = get_system_prompt(self.query.language)
+
+            tools_desc = get_tools_api_description(self.query.language, list(tools.keys()))
+            messages = await run_single_query(
+                query=self.query.query,
+                agent_name=f"{self.query.instance_id}_{self.trial_idx}",
+                model_config_name=self.model_config_name,
+                tools=tools,
+                system_prompt=system_prompt,
+                tools_desc=tools_desc,
             )
-            system_prompt = get_multi_agent_system_prompt(self.query.language)
-        else:
-            tools = self.tools
-            system_prompt = get_system_prompt(self.query.language)
+            response = "NULL"
+            try:
+                response = messages[-1]["content"]["content"]
+            except Exception:
+                response = messages[-1]["content"]
 
-        tools_desc = get_tools_api_description(self.query.language, list(tools.keys()))
-        messages = await run_single_query(
-            query=self.query.query,
-            agent_name=f"{self.query.instance_id}_{self.trial_idx}",
-            model_config_name=self.model_config_name,
-            tools=tools,
-            system_prompt=system_prompt,
-            tools_desc=tools_desc,
-        )
-        response = "NULL"
-        try:
-            response = messages[-1]["content"]["content"]
-        except Exception:
-            response = messages[-1]["content"]
+            wide_search_response_list = [
+                WideSearchResponse(
+                    instance_id=self.query.instance_id,
+                    response=response,
+                    messages=messages,
+                    trial_idx=self.trial_idx,
+                )
+            ]
 
-        wide_search_response_list = [
-            WideSearchResponse(
-                instance_id=self.query.instance_id,
-                response=response,
-                messages=messages,
-                trial_idx=self.trial_idx,
+            WideSearchResponseLoader.dump_response(
+                wide_search_response_list, self.response_path
             )
-        ]
-
-        WideSearchResponseLoader.dump_response(
-            wide_search_response_list, self.response_path
-        )
-        end_time = time.time()
-        logger.info(
-            f"infer end, instance_id: {self.query.instance_id}, cost(s): {end_time - start_time:.2f}"
-        )
-        return wide_search_response_list
+            end_time = time.time()
+            logger.info(
+                f"infer end, instance_id: {self.query.instance_id}, cost(s): {end_time - start_time:.2f}"
+            )
+            return wide_search_response_list
 
     def eval(self):
         start_time = time.time()
