@@ -43,6 +43,7 @@ Operational notes (from pod-side Task 9 smoke test):
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
 import uuid
 from contextlib import contextmanager
@@ -100,19 +101,49 @@ def session_context(instance_id: str, trial_idx: int) -> Iterator[str]:
         _session_id.reset(token)
 
 
-def _strip_tool_call_id(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Drop ``tool_call_id`` from every message.
+def _sanitize_messages_for_pod(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Translate OpenAI-shape messages → what Qwen3.5's chat template expects.
 
-    See module docstring note 1 — Qwen3.5's parser produces ``tool_calls``
-    without an ``id`` and the chat template doesn't handle the OpenAI
-    round-trip shape, so we strip the field for ALL roles (assistant tool-call
-    messages don't carry ``tool_call_id`` themselves, but tool-response
-    messages do).
+    Two transformations:
+
+    1. Drop ``tool_call_id`` from every message. Qwen3.5's BCP-style tool
+       parsing produces ``tool_calls`` without an ``id`` and the chat
+       template doesn't expect that key on tool-response messages either.
+
+    2. For assistant messages with ``tool_calls``: ensure each
+       ``tool_calls[i].function.arguments`` is a **dict** (mapping), not a
+       JSON string. Qwen3.5's chat template (line 120) does
+       ``tool_call.arguments|items`` which requires a mapping; OpenAI's spec
+       says ``arguments`` should be a JSON string, so WideSearch's
+       ``MemoryAgent`` echoes back stringified arguments. Decode them here.
     """
-    return [
-        {k: v for k, v in msg.items() if k != "tool_call_id"}
-        for msg in messages
-    ]
+    out = []
+    for msg in messages:
+        m = {k: v for k, v in msg.items() if k != "tool_call_id"}
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            new_calls = []
+            for tc in m["tool_calls"]:
+                tc_copy = dict(tc)
+                fn = dict(tc.get("function") or {})
+                args = fn.get("arguments")
+                if isinstance(args, str):
+                    try:
+                        fn["arguments"] = json.loads(args) if args else {}
+                    except (json.JSONDecodeError, ValueError):
+                        # Bad/empty arguments — fall back to empty mapping
+                        # rather than crashing the chat template.
+                        fn["arguments"] = {}
+                elif args is None:
+                    fn["arguments"] = {}
+                tc_copy["function"] = fn
+                new_calls.append(tc_copy)
+            m["tool_calls"] = new_calls
+        out.append(m)
+    return out
+
+
+# Backward-compat alias (Task 10 originally exposed this name).
+_strip_tool_call_id = _sanitize_messages_for_pod
 
 
 def complete(
@@ -161,7 +192,7 @@ def complete(
             "trial_idx):` so the client knows which pod session to target."
         )
 
-    sanitized_messages = _strip_tool_call_id(messages)
+    sanitized_messages = _sanitize_messages_for_pod(messages)
     payload = {
         "session_id": sid,
         "messages": sanitized_messages,
@@ -182,16 +213,26 @@ def complete(
     raw_tool_calls = msg.get("tool_calls") or []
     tool_calls_typed: List[ChatCompletionMessageToolCall] = []
     for i, tc in enumerate(raw_tool_calls):
-        # Pod may or may not supply an id; fabricate one for OpenAI consumers.
-        fn = tc.get("function") or {}
+        # Pod returns BCP shape ``{"name": str, "arguments": dict}`` (Qwen3.5
+        # parser output). Translate to OpenAI shape; arguments must be a JSON
+        # **string** in the OpenAI ChatCompletionMessageToolCall surface.
+        if "function" in tc:
+            # Already OpenAI-shaped (defensive — pod doesn't currently use it).
+            fn = tc["function"]
+            name = fn.get("name", "")
+            args_raw = fn.get("arguments", "")
+        else:
+            name = tc.get("name", "")
+            args_raw = tc.get("arguments", "")
+        if isinstance(args_raw, (dict, list)):
+            args_str = json.dumps(args_raw, ensure_ascii=False)
+        else:
+            args_str = args_raw or ""
         tool_calls_typed.append(
             ChatCompletionMessageToolCall(
                 id=tc.get("id") or f"call_{i}",
                 type=tc.get("type", "function"),
-                function=Function(
-                    name=fn.get("name", ""),
-                    arguments=fn.get("arguments", "") or "",
-                ),
+                function=Function(name=name, arguments=args_str),
             )
         )
 
