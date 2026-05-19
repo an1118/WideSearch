@@ -247,3 +247,32 @@ def test_delete_session_calls_endpoint_on_success():
     assert call.args[0].endswith("/session/sess_z")
     # rstrip strips the trailing slash from base_url
     assert "//session" not in call.args[0]
+
+
+# -------- llm.py dispatch ------------------------------------------------- #
+
+
+def test_llm_completion_dispatches_to_compact_backend(monkeypatch):
+    """llm_completion routes 'compact-*' model_name to compact_client.complete."""
+    from src.utils.llm import llm_completion
+
+    fake_response = MagicMock(status_code=200)
+    fake_response.raise_for_status = MagicMock()
+    fake_response.json.return_value = {
+        "session_id": "x_trial0_abc",
+        "message": {"role": "assistant", "content": "result", "tool_calls": None},
+        "finish_reason": "stop",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3},
+    }
+    with patch("src.utils.compact_client.requests.post", return_value=fake_response):
+        with session_context("test_inst", 0):
+            result = llm_completion(
+                messages=[{"role": "user", "content": "hi"}],
+                tools=[],
+                model_config_name="compact-qwen3_5-4b-no-compaction",
+            )
+    # The exact return type depends on llm_completion's contract; just check
+    # that we got a non-None response and that compact_client was called.
+    assert result is not None
+    assert result.role == "assistant"
+    assert result.content == "result"

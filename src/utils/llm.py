@@ -169,6 +169,29 @@ def llm_completion(
         f"model_config_name: {model_config_name}, model_name: {model_name}, generate_kwargs: {generate_kwargs}"
     )
 
+    if model_name.startswith("compact-"):
+        from src.utils.compact_client import complete as compact_complete
+
+        cfg = model_config[model_config_name]
+        sampling = {
+            "temperature": generate_kwargs.get("temperature", 0.7),
+            "top_p": generate_kwargs.get("top_p", 0.95),
+            "top_k": generate_kwargs.get("top_k"),
+            "max_new_tokens": generate_kwargs.get(
+                "max_tokens", generate_kwargs.get("max_new_tokens", 4096)
+            ),
+            "presence_penalty": generate_kwargs.get("presence_penalty"),
+        }
+        return compact_complete(
+            messages=messages
+            if isinstance(messages, list)
+            else [{"role": "user", "content": messages}],
+            tools=list(tools) if tools else [],
+            base_url=cfg["base_url"],
+            compact_config=cfg["compact_config"],
+            sampling=sampling,
+        )
+
     if "doubao" in model_name or model_name.startswith("ep") or "k2" in model_name:
         response = ark_complete(
             base_url=base_url,
