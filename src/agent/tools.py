@@ -41,7 +41,12 @@ class BingSearchRequest(BaseModel):
 
 
 async def async_bing_search_basic(request_data: BingSearchRequest, api_key=""):
-    url = os.getenv("BING_SEARCH_URL", "https://api.bing.microsoft.com/v7.0/search")
+    # Two auth paths supported:
+    #   1. BING_APPID env var → MS-internal endpoint bingapis.com, AppID
+    #      passed via URL param `appid`, no header.
+    #   2. Default (BING_APPID unset) → Azure public endpoint, key passed via
+    #      `Ocp-Apim-Subscription-Key` header.
+    appid = os.getenv("BING_APPID")
     params_from_req = request_data.model_dump(
         mode="json", exclude_none=True, exclude_unset=True
     )
@@ -51,8 +56,24 @@ async def async_bing_search_basic(request_data: BingSearchRequest, api_key=""):
         if "en" in params_from_req["mkt"]:
             params_from_req["ensearch"] = 1
 
-    headers = {"Ocp-Apim-Subscription-Key": api_key}
-    async with aiohttp.ClientSession() as session:
+    if appid:
+        url = os.getenv("BING_SEARCH_URL", "https://www.bingapis.com/api/v7/search")
+        params_from_req["appid"] = appid
+        params_from_req["traffictype"] = "Internal_monitor"
+        headers = {}
+        # bingapis.com presents a cert that aiohttp's default trust store
+        # doesn't verify on every host (Python ssl module on some Linux
+        # distros ignores system CA bundle). Pin to certifi's bundle.
+        import ssl
+        import certifi
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+    else:
+        url = os.getenv("BING_SEARCH_URL", "https://api.bing.microsoft.com/v7.0/search")
+        headers = {"Ocp-Apim-Subscription-Key": api_key}
+        connector = None
+
+    async with aiohttp.ClientSession(connector=connector) as session:
         async with session.get(
             url, headers=headers, params=params_from_req
         ) as response:
