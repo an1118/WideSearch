@@ -199,6 +199,15 @@ async def search_global(
             )
         )
 
+    # Per README §Configuration ("Implement custom search tools"), the upstream
+    # `search_global` / `text_browser_view` are Bytedance-internal placeholders.
+    # When SEARCH_TOOL_API_URL is unset, fall back to Bing (configured via
+    # BING_APPID for the MS-internal endpoint or BingSearch_APIKEY for the
+    # public Azure endpoint — see `async_bing_search_basic`).
+    if not os.getenv("SEARCH_TOOL_API_URL"):
+        mkt = "en-US" if use_english else "zh-CN"
+        return await search_bing(query=query, count=count, mkt=mkt, verbose=False)
+
     try:
         arguments = {
             "query": query,
@@ -282,6 +291,42 @@ async def search_global(
 
 @timeout_handler(timeout=120)
 async def text_browser_view(url: str, description: str):
+    # Fallback: when SEARCH_TOOL_API_URL is unset, fetch the URL directly with
+    # aiohttp + extract page text with BeautifulSoup. Same README §Configuration
+    # principle as search_global. The extracted text is truncated to ~32k chars
+    # to keep the agent context manageable.
+    if not os.getenv("SEARCH_TOOL_API_URL"):
+        try:
+            import ssl
+            import certifi
+            from bs4 import BeautifulSoup
+            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
+            async with aiohttp.ClientSession(
+                connector=connector,
+                timeout=aiohttp.ClientTimeout(total=60),
+                headers={"User-Agent": "Mozilla/5.0 (compatible; WideSearch-Agent/1.0)"},
+            ) as session:
+                async with session.get(url) as response:
+                    response.raise_for_status()
+                    html = await response.text()
+            soup = BeautifulSoup(html, "html.parser")
+            for tag in soup(["script", "style", "noscript"]):
+                tag.decompose()
+            text = soup.get_text(separator="\n", strip=True)
+            if len(text) > 32000:
+                text = text[:32000] + "\n\n[...truncated by text_browser_view fallback...]"
+            return InternalResponse(data=text)
+        except Exception:
+            return InternalResponse(
+                error=return_error(
+                    error_msg="text_browser_view fetch failed",
+                    verbose=True,
+                    req=url,
+                    context=traceback.format_exc(),
+                )
+            )
+
     arguments = {
         "url": url,
         "description": description,
