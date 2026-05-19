@@ -291,19 +291,58 @@ async def search_global(
 
 @timeout_handler(timeout=120)
 async def text_browser_view(url: str, description: str):
-    # Fallback: when SEARCH_TOOL_API_URL is unset, fetch the URL directly with
-    # aiohttp + extract page text with BeautifulSoup. Same README §Configuration
-    # principle as search_global. The extracted text is truncated to ~32k chars
-    # to keep the agent context manageable.
+    # Fallback (when SEARCH_TOOL_API_URL is unset, per README §Configuration):
+    # primary path uses Jina Reader (https://r.jina.ai/<url>) which renders
+    # JS-heavy pages and bypasses most anti-bot blocks (sites like QS /
+    # topuniversities.com return 403 to plain aiohttp).
+    # Secondary path: naive aiohttp + BeautifulSoup. Truncated to ~32k chars.
     if not os.getenv("SEARCH_TOOL_API_URL"):
+        import ssl
+        import certifi
+        ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+
+        def _connector():
+            return aiohttp.TCPConnector(ssl=ssl_ctx)
+
+        # Primary: Jina Reader. Optional auth via JINA_API_KEYS (comma-separated;
+        # any one is picked). Without a key, hits the free-tier rate limit.
+        jina_keys = [
+            k.strip()
+            for k in os.getenv("JINA_API_KEYS", "").split(",")
+            if k.strip()
+        ]
+        jina_headers = {"Accept": "text/markdown"}
+        if jina_keys:
+            import random
+            jina_headers["Authorization"] = f"Bearer {random.choice(jina_keys)}"
+            # With an auth'd key, opt into the browser engine — real headless
+            # rendering that bypasses most anti-bot protections (QS,
+            # topuniversities.com etc. return 403 to Jina's default engine).
+            # Costs ~10x more tokens per call; only worth it when authenticated.
+            jina_headers["X-Engine"] = "browser"
+        jina_url = f"https://r.jina.ai/{url}"
+        jina_traceback = None
         try:
-            import ssl
-            import certifi
-            from bs4 import BeautifulSoup
-            ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-            connector = aiohttp.TCPConnector(ssl=ssl_ctx)
             async with aiohttp.ClientSession(
-                connector=connector,
+                connector=_connector(),
+                timeout=aiohttp.ClientTimeout(total=90),
+                headers=jina_headers,
+            ) as session:
+                async with session.get(jina_url) as response:
+                    response.raise_for_status()
+                    text = await response.text()
+            if len(text) > 32000:
+                text = text[:32000] + "\n\n[...truncated by Jina Reader fallback...]"
+            return InternalResponse(data=text)
+        except Exception:
+            jina_traceback = traceback.format_exc()
+
+        # Secondary: direct aiohttp + bs4. Used if Jina fails (rate limit,
+        # network error, target site blocks Jina too).
+        try:
+            from bs4 import BeautifulSoup
+            async with aiohttp.ClientSession(
+                connector=_connector(),
                 timeout=aiohttp.ClientTimeout(total=60),
                 headers={"User-Agent": "Mozilla/5.0 (compatible; WideSearch-Agent/1.0)"},
             ) as session:
@@ -315,15 +354,18 @@ async def text_browser_view(url: str, description: str):
                 tag.decompose()
             text = soup.get_text(separator="\n", strip=True)
             if len(text) > 32000:
-                text = text[:32000] + "\n\n[...truncated by text_browser_view fallback...]"
+                text = text[:32000] + "\n\n[...truncated by direct-fetch fallback...]"
             return InternalResponse(data=text)
         except Exception:
             return InternalResponse(
                 error=return_error(
-                    error_msg="text_browser_view fetch failed",
+                    error_msg="text_browser_view fetch failed (both Jina + direct)",
                     verbose=True,
                     req=url,
-                    context=traceback.format_exc(),
+                    context=(
+                        f"Jina path traceback:\n{jina_traceback}\n\n"
+                        f"Direct path traceback:\n{traceback.format_exc()}"
+                    ),
                 )
             )
 
