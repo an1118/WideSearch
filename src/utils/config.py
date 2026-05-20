@@ -97,9 +97,9 @@ model_config = {
             "enabled": True,
             "trigger": {"type": "every_turn"},
             "use_uncompacted_latest": False,
-            "thinking_ratio": 0.3,
-            "tool_response_ratio": 0.5,
-            "proxy_future_turns": 2,
+            "thinking_ratio": 0.05,                    # match BCP
+            "tool_response_ratio": 0.05,               # match BCP
+            "proxy_future_turns": 4,                   # match BCP
             "dual_mode": True,
             "num_thinking_query_tokens": 15000,        # match BCP
             "num_tool_response_query_tokens": 15000,   # match BCP
