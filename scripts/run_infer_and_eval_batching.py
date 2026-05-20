@@ -107,6 +107,11 @@ class SingleTask:
                 system_prompt = get_system_prompt(self.query.language)
 
             tools_desc = get_tools_api_description(self.query.language, list(tools.keys()))
+            # Compact backend: any LLM error means the pod-side session was
+            # poisoned by an OOM (see compact_server.py 507 handling). Retrying
+            # would either hit the same OOM or get 409 on the dead session, so
+            # stop immediately and let the task be marked failed.
+            llm_error_strategy = "stop" if is_compact else "retry"
             messages = await run_single_query(
                 query=self.query.query,
                 agent_name=f"{self.query.instance_id}_{self.trial_idx}",
@@ -114,6 +119,7 @@ class SingleTask:
                 tools=tools,
                 system_prompt=system_prompt,
                 tools_desc=tools_desc,
+                llm_error_strategy=llm_error_strategy,
             )
             response = "NULL"
             try:

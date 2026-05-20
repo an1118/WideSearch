@@ -307,8 +307,10 @@ class Runner:
         return action_step
 
 
-async def run_turn(agent, memory, user_input):
-    r = Runner.run(agent, memory=memory, user_input=user_input)
+async def run_turn(agent, memory, user_input, *,
+                   llm_error_strategy: Literal["retry", "stop"] = "retry"):
+    r = Runner.run(agent, memory=memory, user_input=user_input,
+                   llm_error_strategy=llm_error_strategy)
     async for step in r:
         logger.debug(f"step: {step}")
 
@@ -340,6 +342,7 @@ async def run_single_query(
     tools: dict = _default_tools,
     tools_desc: list[dict] = [],
     system_prompt: str = get_system_prompt(language="zh"),
+    llm_error_strategy: Literal["retry", "stop"] = "retry",
 ):
     agent = Agent(
         name=agent_name,
@@ -352,6 +355,6 @@ async def run_single_query(
 
     memory = MemoryAgent(system_instructions=system_prompt)
     logger.info(f"agent running: {agent_name}, model: {model_config_name}.")
-    await run_turn(agent, memory, query)
+    await run_turn(agent, memory, query, llm_error_strategy=llm_error_strategy)
     logger.info(f"agent finished: {agent_name}, model: {model_config_name}.")
     return extract_messages_from_memory(memory)
