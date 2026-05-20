@@ -128,11 +128,13 @@ model_config = {
         },
     },
     "default_eval_config": {
-        "model_name": "gpt-4.1-2025-04-14",
-        "base_url": "",
-        "api_key": "",
+        "model_name": "qwen-judge",
+        "base_url": "http://localhost:38000/v1",
+        "api_key": "dummy",
+        "served_model_name": "qwen",
         "generate_kwargs": {
-            "max_tokens": 10240,
+            "max_tokens": 4096,
+            "temperature": 0,
         },
         "temperature": 0,
     },

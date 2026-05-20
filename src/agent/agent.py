@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from types import CoroutineType
 from typing import Any, Callable
 
-DEFAULT_MAX_STEPS = 50
+DEFAULT_MAX_STEPS = 100  # bumped from 50 for experiment; revert before any release
 DEFAULT_MAX_ERROR_COUNT = 3
 
 

@@ -4,7 +4,7 @@
 from typing import Any, Iterable, List, Optional, Union
 
 from loguru import logger
-from openai import AzureOpenAI
+from openai import AzureOpenAI, OpenAI
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from tenacity import retry, stop_after_attempt, wait_incrementing
 from volcenginesdkarkruntime import Ark
@@ -168,6 +168,20 @@ def llm_completion(
     logger.debug(
         f"model_config_name: {model_config_name}, model_name: {model_name}, generate_kwargs: {generate_kwargs}"
     )
+
+    if "qwen-judge" in model_name:
+        from openai import OpenAI as _OpenAI
+        msgs = messages if isinstance(messages, list) else [
+            {"role": "user", "content": messages}
+        ]
+        client = _OpenAI(base_url=base_url, api_key=api_key, timeout=300)
+        completion = client.chat.completions.create(
+            messages=msgs,
+            model=model_config[model_config_name].get("served_model_name", "qwen"),
+            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+            **generate_kwargs,
+        )
+        return completion.choices[0].message
 
     if model_name.startswith("compact-"):
         from src.utils.compact_client import complete as compact_complete
