@@ -101,6 +101,8 @@ model_config = {
             "tool_response_ratio": 0.5,
             "proxy_future_turns": 2,
             "dual_mode": True,
+            "num_thinking_query_tokens": 15000,        # match BCP
+            "num_tool_response_query_tokens": 15000,   # match BCP
             "algorithm_kwargs": {},
         },
     },
