@@ -63,9 +63,11 @@ class ToolCallResult:
             return self.content
         elif self.error_marker is not None:
             return self.error_marker["message"]
+        elif self.system_error_marker is not None:
+            return self.system_error_marker["message"]
         else:
             raise ValueError(
-                "[ToolCallResult] Must have one of content or error marker."
+                "[ToolCallResult] Must have one of content, error_marker, or system_error_marker."
             )
 
 

@@ -189,10 +189,10 @@ async def search_global(
             )
         )
 
-    if count > 200:
+    if count > 50:
         return InternalResponse(
             error=return_error(
-                error_msg=f"count={count} not in [0, 200]",
+                error_msg=f"count={count} exceeds the maximum of 50; please retry with count<=50",
                 verbose=True,
                 req=query,
                 context="",
@@ -206,7 +206,7 @@ async def search_global(
     # public Azure endpoint — see `async_bing_search_basic`).
     if not os.getenv("SEARCH_TOOL_API_URL"):
         mkt = "en-US" if use_english else "zh-CN"
-        return await search_bing(query=query, count=count, mkt=mkt, verbose=False)
+        return await search_bing(query=query, count=min(count, 50), mkt=mkt, verbose=False)
 
     try:
         arguments = {

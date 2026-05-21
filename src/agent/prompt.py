@@ -138,7 +138,7 @@ tools_api_description_zh_map = {
                     },
                     "count": {
                         "type": "integer",
-                        "description": "每页返回条数，最多200条，默认10条",
+                        "description": "每页返回条数，最多50条，默认10条",
                         "default": 10,
                     },
                     "summary_type": {
@@ -257,7 +257,7 @@ tools_api_description_en_map = {
                     },
                     "count": {
                         "type": "integer",
-                        "description": "The number of results to return. Must be less than 200, and default is 10",
+                        "description": "The number of results to return. Must be less than or equal to 50, and default is 10",
                         "default": 10,
                     },
                     "summary_type": {
