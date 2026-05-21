@@ -331,8 +331,8 @@ async def text_browser_view(url: str, description: str):
                 async with session.get(jina_url) as response:
                     response.raise_for_status()
                     text = await response.text()
-            if len(text) > 32000:
-                text = text[:32000] + "\n\n[...truncated by Jina Reader fallback...]"
+            if len(text) > 16000:
+                text = text[:16000] + "\n\n[...truncated by Jina Reader fallback...]"
             return InternalResponse(data=text)
         except Exception:
             jina_traceback = traceback.format_exc()
@@ -353,8 +353,8 @@ async def text_browser_view(url: str, description: str):
             for tag in soup(["script", "style", "noscript"]):
                 tag.decompose()
             text = soup.get_text(separator="\n", strip=True)
-            if len(text) > 32000:
-                text = text[:32000] + "\n\n[...truncated by direct-fetch fallback...]"
+            if len(text) > 16000:
+                text = text[:16000] + "\n\n[...truncated by direct-fetch fallback...]"
             return InternalResponse(data=text)
         except Exception:
             return InternalResponse(
