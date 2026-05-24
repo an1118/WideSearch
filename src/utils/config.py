@@ -1,6 +1,13 @@
 # Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: MIT
 
+import os
+
+# Compact backend base URL. Default points at the single-GPU port-forward
+# (localhost:18080). For multi-GPU parallel runs each WideSearch worker sets
+# COMPACT_BASE_URL to its own lane (e.g. http://localhost:18081 for GPU 1).
+_COMPACT_BASE_URL = os.environ.get("COMPACT_BASE_URL", "http://localhost:18080")
+
 model_config = {
     "model_config_name": {
         "model_name": "MODEL_NAME",
@@ -83,7 +90,7 @@ model_config = {
     },
     "compact-qwen3_5-4b-future-proxy-dual": {
         "model_name": "compact-qwen3.5-4b",
-        "base_url": "http://localhost:18080",
+        "base_url": _COMPACT_BASE_URL,
         "api_key": "unused",
         "is_claude_thinking": False,
         "default_system_prompt": "",
@@ -108,7 +115,7 @@ model_config = {
     },
     "compact-qwen3_5-4b-no-compaction": {
         "model_name": "compact-qwen3.5-4b",
-        "base_url": "http://localhost:18080",
+        "base_url": _COMPACT_BASE_URL,
         "api_key": "unused",
         "is_claude_thinking": False,
         "default_system_prompt": "",

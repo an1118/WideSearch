@@ -5,6 +5,7 @@
 __pycache__
 
 *.sh
+!scripts/run_widesearch_parallel.sh
 .venv
 *egg-info/
 data/output/inner*
