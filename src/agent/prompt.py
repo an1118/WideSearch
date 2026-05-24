@@ -295,10 +295,66 @@ def get_multi_agent_system_prompt(language: str) -> str:
         raise ValueError(f"Unknown language {language}")
 
 
+def _apply_url_map_mode(spec: dict, lang: str, mode: str) -> dict:
+    """Mutate a tool spec's description fields based on URL_MAP_MODE.
+
+    Static file text is the URL-only original WideSearch wording (mode "url",
+    the default). This function only mutates when mode != "url".
+
+    Modes:
+      "url"    → no change (static text already URL-only)
+      "doc_id" → search_global mentions [doc_id]; text_browser_view url param
+                 is described as a doc_id
+      "both"   → search_global mentions both [Url] and [doc_id];
+                 text_browser_view url param accepts either form
+
+    Only affects search_global (mentions the result fields) and
+    text_browser_view (its url parameter wording).
+    """
+    if mode == "url":
+        return spec
+
+    name = spec["function"]["name"]
+    fn = spec["function"]
+    params = fn.get("parameters", {}).get("properties", {})
+
+    if name == "search_global":
+        if mode == "doc_id":
+            if lang == "zh":
+                fn["description"] = "这是一个联网搜索工具，输入搜索问题，返回网页列表与对应的摘要信息。每个结果带一个 doc_id（如 'doc_3'），调用 text_browser_view 时传该 doc_id 即可。搜索问题应该简洁清晰，复杂问题应该拆解成多步并一步一步搜索。如果没有搜索到有用的页面，可以调整问题描述（如减少限定词、更换搜索思路）后再次搜索。搜索结果质量和语种有关。"
+            else:
+                fn["description"] = "This is a search tool. Enter search queries, and it will return a list of web pages along with their corresponding summary information. Each result carries a doc_id (e.g. 'doc_3'); pass that doc_id to text_browser_view to open it. Search queries should be concise and clear; complex questions should be broken down into multiple steps. If no useful pages are found, adjust the query and search again."
+        elif mode == "both":
+            if lang == "zh":
+                fn["description"] = "这是一个联网搜索工具，输入搜索问题，返回网页列表与对应的摘要信息。每个结果同时包含 [Url] 和 [doc_id] 两个字段，调用 text_browser_view 时任选其一传入即可。搜索问题应该简洁清晰，复杂问题应该拆解成多步并一步一步搜索。如果没有搜索到有用的页面，可以调整问题描述（如减少限定词、更换搜索思路）后再次搜索。搜索结果质量和语种有关，对于中文资源可以尝试输入中文问题，非中文的资源可以尝试使用英文或对应语种。"
+            else:
+                fn["description"] = "This is a search tool. Enter search queries, and it will return a list of web pages along with their corresponding summary information. Each result includes both a [Url] field and a [doc_id] field; either form can be passed to text_browser_view. Search queries should be concise and clear; complex questions should be broken down into multiple steps and searched step by step. If no useful pages are found, you can adjust the question description (such as reducing qualifiers or changing the search approach) and search again. The quality of search results is related to the language: for Chinese resources, you can try entering Chinese queries; for non-Chinese resources, you can try using English or the corresponding language."
+
+    elif name == "text_browser_view":
+        url_param = params.get("url", {})
+        if mode == "doc_id":
+            if lang == "zh":
+                url_param["description"] = "search_global 返回的 doc_id（如 'doc_3'）"
+            else:
+                url_param["description"] = "A doc_id from search_global results (e.g. 'doc_3')"
+        elif mode == "both":
+            if lang == "zh":
+                url_param["description"] = "目标链接。可以是完整的 http(s):// URL，也可以是 search_global 返回结果中的 doc_id（如 'doc_3'）；两者都被接受，系统会自动解析。"
+            else:
+                url_param["description"] = "Target link. May be a complete http(s):// URL, or a doc_id from a search_global result (e.g. 'doc_3'); both are accepted and the system will resolve either form."
+
+    return spec
+
+
 def get_tools_api_description(language: str, func_list: list[str]) -> list[dict]:
+    import copy
+    import os as _os
+    mode = _os.environ.get("URL_MAP_MODE", "url")
     if language == "zh":
-        return [tools_api_description_zh_map[k] for k in func_list]
+        base = [tools_api_description_zh_map[k] for k in func_list]
     elif language == "en":
-        return [tools_api_description_en_map[k] for k in func_list]
+        base = [tools_api_description_en_map[k] for k in func_list]
     else:
         raise ValueError(f"Unknown language {language}")
+    # Deep-copy so per-call mode adjustments don't mutate the module-level dict.
+    return [_apply_url_map_mode(copy.deepcopy(spec), language, mode) for spec in base]

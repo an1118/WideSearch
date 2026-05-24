@@ -6,11 +6,69 @@ import functools
 import json
 import os
 import traceback
-from typing import Annotated, Any, Awaitable, Callable, List, Optional
+from typing import Annotated, Any, Awaitable, Callable, Dict, List, Optional
 
 import aiohttp
 from loguru import logger
 from pydantic import BaseModel, Field
+
+
+# Per-session URL ↔ doc_id mapping. Small models hallucinate URLs (rewriting
+# letters, dropping path segments) when copying long strings from search
+# results into text_browser_view calls. To eliminate this, search_global
+# returns opaque short doc_ids (e.g. "doc_3") instead of full URLs, and
+# text_browser_view resolves them back via this map. Raw URLs are still
+# accepted by text_browser_view as a fallback (e.g. for hard-coded URLs in
+# the user query or for URLs the model knows from training).
+#
+# Keyed by compact-backend session_id when running through compact_client,
+# else "default" (fine for thread_num=1 batches; multi-thread non-compact
+# would share namespace).
+_doc_id_map: Dict[str, Dict[str, str]] = {}        # session_id -> {doc_id: url}
+_doc_id_reverse: Dict[str, Dict[str, str]] = {}    # session_id -> {url: doc_id} (dedup)
+_doc_id_counter: Dict[str, int] = {}               # session_id -> next int
+
+
+def _get_doc_session_id() -> str:
+    try:
+        from src.utils.compact_client import get_session_id
+        return get_session_id() or "default"
+    except Exception:
+        return "default"
+
+
+def _register_url(url: str) -> str:
+    """Register URL under the current session; return its doc_id. Idempotent
+    per (session_id, url): same URL twice yields the same doc_id."""
+    if not url:
+        return ""
+    sid = _get_doc_session_id()
+    forward = _doc_id_map.setdefault(sid, {})
+    reverse = _doc_id_reverse.setdefault(sid, {})
+    if url in reverse:
+        return reverse[url]
+    n = _doc_id_counter.get(sid, 0) + 1
+    _doc_id_counter[sid] = n
+    doc_id = f"doc_{n}"
+    forward[doc_id] = url
+    reverse[url] = doc_id
+    return doc_id
+
+
+def _resolve_to_url(token: str) -> str:
+    """If token is a known doc_id for the current session, return the mapped
+    URL. If it already looks like a URL, return as-is. Otherwise (unknown
+    doc_id or freeform text), return unchanged — downstream fetch will fail
+    visibly and the model will see the error."""
+    if not token:
+        return token
+    if token.startswith(("http://", "https://")):
+        return token
+    sid = _get_doc_session_id()
+    forward = _doc_id_map.get(sid, {})
+    if token in forward:
+        return forward[token]
+    return token
 
 
 class InternalResponse(BaseModel):
@@ -147,7 +205,19 @@ async def search_bing(
             lines.append(f"[title] {web_page.get('name', '')}")
             lines.append(f"[datePublished] {web_page.get('datePublished', '')}")
             lines.append(f"[siteName] {web_page.get('siteName', '')}")
-            lines.append(f"[Url] {web_page.get('url', '')}")
+            # URL/doc_id emission gated by URL_MAP_MODE env var:
+            #   "url"    (default) — show only [Url]; matches original WideSearch
+            #   "doc_id"           — show only [doc_id]
+            #   "both"             — show both [Url] and [doc_id]
+            # _register_url is always called so the back-end map is populated
+            # regardless of what's shown; text_browser_view resolves either form.
+            url = web_page.get('url', '')
+            doc_id = _register_url(url)
+            mode = os.environ.get("URL_MAP_MODE", "url")
+            if mode in ("url", "both"):
+                lines.append(f"[Url] {url}")
+            if mode in ("doc_id", "both"):
+                lines.append(f"[doc_id] {doc_id}")
             lines.append(f"[snippt] {web_page.get('snippet', '')}")
             sections.append("\n".join(lines))
         return InternalResponse(data="\n\n".join(sections))
@@ -291,11 +361,20 @@ async def search_global(
 
 @timeout_handler(timeout=120)
 async def text_browser_view(url: str, description: str):
+    # If the model passed a doc_id from search_global (e.g. "doc_3"), resolve
+    # it to the real URL via the per-session map. Raw URLs pass through
+    # unchanged. Unknown doc_ids fall through too — downstream fetch will
+    # surface a clear error.
+    resolved = _resolve_to_url(url)
+    if resolved != url:
+        logger.info(f"text_browser_view: resolved {url} -> {resolved}")
+        url = resolved
+
     # Fallback (when SEARCH_TOOL_API_URL is unset, per README §Configuration):
     # primary path uses Jina Reader (https://r.jina.ai/<url>) which renders
     # JS-heavy pages and bypasses most anti-bot blocks (sites like QS /
     # topuniversities.com return 403 to plain aiohttp).
-    # Secondary path: naive aiohttp + BeautifulSoup. Truncated to ~32k chars.
+    # Secondary path: naive aiohttp + BeautifulSoup. Truncated to ~16k chars.
     if not os.getenv("SEARCH_TOOL_API_URL"):
         import ssl
         import certifi

@@ -281,8 +281,21 @@ if __name__ == "__main__":
     parser.add_argument(
         "--thread_num", type=int, default=1, help="thread num to run infer and eval"
     )
+    parser.add_argument(
+        "--url_map_mode",
+        type=str,
+        default="url",
+        choices=["url", "doc_id", "both"],
+        help="How search_global presents result URLs to the model: "
+             "'url' (default, original WideSearch — only [Url] shown); "
+             "'doc_id' (only [doc_id] shown, back-end resolves to URL); "
+             "'both' ([Url] + [doc_id] both shown). text_browser_view always "
+             "accepts either form. Sets URL_MAP_MODE env var consumed by "
+             "src/agent/tools.py and src/agent/prompt.py.",
+    )
 
     args = parser.parse_args()
+    os.environ["URL_MAP_MODE"] = args.url_map_mode
 
     trial_num = args.trial_num
     model_config_name = args.model_config_name
