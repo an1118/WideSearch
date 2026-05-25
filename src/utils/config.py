@@ -142,6 +142,44 @@ model_config = {
             "algorithm_kwargs": {},
         },
     },
+    # BCP-parity Qwen3.5 compact: Yujian's confirmed config locked 2026-05-25.
+    # Flags it mirrors:
+    #   --query-method self_study --proxy-future-turns 2
+    #   --include-boundary-proxy --thinking-ratio 0.2
+    #   --tool-response-ratio 0.2 --preserve-boundaries --preserve-specials
+    # (--dual-mode-beta-c2 NOT set → dual_mode=False;
+    #  --optimize-beta / --optimize-values NOT set → TE flavor)
+    "compact-qwen3_5-4b-bcp-parity": {
+        "model_name": "compact-qwen3.5-4b",
+        "base_url": _COMPACT_BASE_URL,
+        "api_key": "unused",
+        "is_claude_thinking": False,
+        "default_system_prompt": "",
+        "generate_kwargs": {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "max_new_tokens": 4096,
+            "presence_penalty": 1.5,
+        },
+        "compact_config": {
+            "enabled": True,
+            "trigger": {"type": "every_turn"},
+            "use_uncompacted_latest": False,
+            "thinking_ratio": 0.2,
+            "tool_response_ratio": 0.2,
+            "proxy_future_turns": 2,
+            "dual_mode": False,
+            "query_method": "self_study",
+            "preserve_boundaries": True,
+            "preserve_specials": True,
+            "include_boundary_proxy": True,
+            "optimize_beta": False,
+            "optimize_values": False,
+            "num_thinking_query_tokens": None,
+            "num_tool_response_query_tokens": None,
+            "algorithm_kwargs": {},
+        },
+    },
     # Phase 1 model-comparison entry: same pipeline as the Qwen3.5-4B
     # baseline, just pointing at the gemma-4-E4B-it snapshot. defaults
     # below come from the model's generation_config.json
