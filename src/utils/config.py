@@ -8,6 +8,12 @@ import os
 # COMPACT_BASE_URL to its own lane (e.g. http://localhost:18081 for GPU 1).
 _COMPACT_BASE_URL = os.environ.get("COMPACT_BASE_URL", "http://localhost:18080")
 
+# Qwen3.5-397B judge endpoint used by eval (default_eval_config). Set
+# EVAL_BASE_URL to whichever local port-forward fronts the judge pod for
+# kv_compact eval runs (e.g. http://localhost:39000/v1) — keeps us off the
+# 38000 LB which other projects on this VM also depend on.
+_EVAL_BASE_URL = os.environ.get("EVAL_BASE_URL", "http://localhost:38000/v1")
+
 model_config = {
     "model_config_name": {
         "model_name": "MODEL_NAME",
@@ -136,9 +142,40 @@ model_config = {
             "algorithm_kwargs": {},
         },
     },
+    # Phase 1 model-comparison entry: same pipeline as the Qwen3.5-4B
+    # baseline, just pointing at the gemma-4-E4B-it snapshot. defaults
+    # below come from the model's generation_config.json
+    # (temperature=1.0, top_p=0.95, top_k=64). presence_penalty is
+    # omitted — Gemma 4's generation_config doesn't set one, and BCP
+    # eval doesn't pass it for Gemma 4 either. default_system_prompt
+    # left empty per evaluation/utils.py:167-170 — Gemma family uses no
+    # system prompt prefix.
+    "gemma4-e4b-no-compaction": {
+        "model_name": "compact-gemma4-e4b",
+        "base_url": _COMPACT_BASE_URL,
+        "api_key": "unused",
+        "is_claude_thinking": False,
+        "default_system_prompt": "",
+        "generate_kwargs": {
+            "temperature": 1.0,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_new_tokens": 4096,
+        },
+        "compact_config": {
+            "enabled": False,
+            "trigger": {"type": "no_compaction"},
+            "use_uncompacted_latest": False,
+            "thinking_ratio": 0.3,
+            "tool_response_ratio": 0.5,
+            "proxy_future_turns": 2,
+            "dual_mode": False,
+            "algorithm_kwargs": {},
+        },
+    },
     "default_eval_config": {
         "model_name": "qwen-judge",
-        "base_url": "http://localhost:38000/v1",
+        "base_url": _EVAL_BASE_URL,
         "api_key": "dummy",
         "served_model_name": "qwen",
         "generate_kwargs": {
