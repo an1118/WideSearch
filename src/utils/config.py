@@ -180,6 +180,52 @@ model_config = {
             "algorithm_kwargs": {},
         },
     },
+    # EMNLP-paper "TE Boundary delay=0" config: per Table 1, this scored
+    # 45.25% on Qwen3.5-4B BCP (-0.75pp vs no-compact 46.00) — the
+    # strongest immediate-compaction config in the paper. Boundary Q's
+    # (mr_suffix / tr_suffix) are used as the PRIMARY trajectory_proxies
+    # rather than future asst_q (which doesn't exist at pft=0).
+    #
+    # Critical config differences from compact-qwen3_5-4b-bcp-parity:
+    #   proxy_future_turns: 2 → 0        (immediate compaction)
+    #   include_boundary_proxy: True → False  (boundary IS the primary,
+    #                                          not an auxiliary entry)
+    # Other compaction flags match Yujian's BCP-parity config.
+    #
+    # Requires server-side branch feat/qwen-compact-bcp-parity HEAD with
+    # the pft=0 + self_study code path (mirrors BCP
+    # run_browsecomp_evaluation.py:2076-2101).
+    "compact-qwen3_5-4b-boundary-te-pft0": {
+        "model_name": "compact-qwen3.5-4b",
+        "base_url": _COMPACT_BASE_URL,
+        "api_key": "unused",
+        "is_claude_thinking": False,
+        "default_system_prompt": "",
+        "generate_kwargs": {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "max_new_tokens": 4096,
+            "presence_penalty": 1.5,
+        },
+        "compact_config": {
+            "enabled": True,
+            "trigger": {"type": "every_turn"},
+            "use_uncompacted_latest": False,
+            "thinking_ratio": 0.2,
+            "tool_response_ratio": 0.2,
+            "proxy_future_turns": 0,
+            "dual_mode": False,
+            "query_method": "self_study",
+            "preserve_boundaries": True,
+            "preserve_specials": True,
+            "include_boundary_proxy": False,
+            "optimize_beta": False,
+            "optimize_values": False,
+            "num_thinking_query_tokens": None,
+            "num_tool_response_query_tokens": None,
+            "algorithm_kwargs": {},
+        },
+    },
     # Phase 1 model-comparison entry: same pipeline as the Qwen3.5-4B
     # baseline, just pointing at the gemma-4-E4B-it snapshot. defaults
     # below come from the model's generation_config.json
