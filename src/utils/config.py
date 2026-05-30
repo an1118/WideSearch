@@ -226,6 +226,73 @@ model_config = {
             "algorithm_kwargs": {},
         },
     },
+    # AM (Attention Matching) flavor with repeat_prefill+self_study proxy
+    # at pft=1 and pft=2. EMNLP paper Table 1 row "AM + repeat-prefill
+    # delay=1" → 43.25% on Qwen3.5-4B BCP. AM optimizes β attention bias
+    # AND compacted C2 values to match full-cache attention outputs over
+    # the concatenated proxy queries. RP+SS feeds the LSQ system with
+    # both a teacher-forced replay forward (RP, run at push time per
+    # BCP :1854-1875 to avoid pop-time cache pollution) and natural
+    # future-turn asst_q (SS). Requires server-side push-time RP
+    # precompute landed in session.py.
+    "compact-qwen3_5-4b-am-rpss-pft1": {
+        "model_name": "compact-qwen3.5-4b",
+        "base_url": _COMPACT_BASE_URL,
+        "api_key": "unused",
+        "is_claude_thinking": False,
+        "default_system_prompt": "",
+        "generate_kwargs": {
+            "temperature": 0.7, "top_p": 0.95,
+            "max_new_tokens": 4096, "presence_penalty": 1.5,
+        },
+        "compact_config": {
+            "enabled": True,
+            "trigger": {"type": "every_turn"},
+            "use_uncompacted_latest": False,
+            "thinking_ratio": 0.2,
+            "tool_response_ratio": 0.2,
+            "proxy_future_turns": 1,
+            "dual_mode": False,
+            "query_method": "repeat_prefill+self_study",
+            "preserve_boundaries": True,
+            "preserve_specials": True,
+            "include_boundary_proxy": False,
+            "optimize_beta": True,
+            "optimize_values": True,
+            "num_thinking_query_tokens": None,
+            "num_tool_response_query_tokens": None,
+            "algorithm_kwargs": {},
+        },
+    },
+    "compact-qwen3_5-4b-am-rpss-pft2": {
+        "model_name": "compact-qwen3.5-4b",
+        "base_url": _COMPACT_BASE_URL,
+        "api_key": "unused",
+        "is_claude_thinking": False,
+        "default_system_prompt": "",
+        "generate_kwargs": {
+            "temperature": 0.7, "top_p": 0.95,
+            "max_new_tokens": 4096, "presence_penalty": 1.5,
+        },
+        "compact_config": {
+            "enabled": True,
+            "trigger": {"type": "every_turn"},
+            "use_uncompacted_latest": False,
+            "thinking_ratio": 0.2,
+            "tool_response_ratio": 0.2,
+            "proxy_future_turns": 2,
+            "dual_mode": False,
+            "query_method": "repeat_prefill+self_study",
+            "preserve_boundaries": True,
+            "preserve_specials": True,
+            "include_boundary_proxy": False,
+            "optimize_beta": True,
+            "optimize_values": True,
+            "num_thinking_query_tokens": None,
+            "num_tool_response_query_tokens": None,
+            "algorithm_kwargs": {},
+        },
+    },
     # Phase 1 model-comparison entry: same pipeline as the Qwen3.5-4B
     # baseline, just pointing at the gemma-4-E4B-it snapshot. defaults
     # below come from the model's generation_config.json
