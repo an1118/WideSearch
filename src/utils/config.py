@@ -226,10 +226,58 @@ model_config = {
             "algorithm_kwargs": {},
         },
     },
-    # AM (Attention Matching) flavor with repeat_prefill+self_study proxy
-    # at pft=1 and pft=2. EMNLP paper Table 1 row "AM + repeat-prefill
-    # delay=1" → 43.25% on Qwen3.5-4B BCP. AM optimizes β attention bias
-    # AND compacted C2 values to match full-cache attention outputs over
+    # Dynamic (progressive) token-eviction: mirrors kv_compact's
+    # scripts/run_te_dynamic.sh (qwen35-4b-te-ss-dynamic-pft5-r0.2). Same
+    # SS + TE setting as the pft=5 delayed-buffer config but adds
+    # dynamic_compaction: each turn is first-cut at its boundary then shrunk
+    # one geometric step per future turn (cached-order proxy, force skeleton
+    # kept every step, frozen body == ratio). In-flight window turns stay small
+    # so decode is faster, while the steady-state (frozen) cache matches the
+    # one-shot pft=5 result — so scores should track the non-dynamic pft=5 run.
+    #
+    # BCP flags mirrored:
+    #   --query-method self_study --proxy-future-turns 5 --dynamic-compaction
+    #   --thinking-ratio 0.2 --tool-response-ratio 0.2
+    #   --preserve-boundaries --preserve-specials
+    #   (TE flavor: neither --optimize-beta nor --optimize-values)
+    #
+    # Requires the server-side compact server (server/session.py) with the
+    # dynamic-compaction port (CompactConfig.dynamic_compaction +
+    # CompactSession._dynamic_step). dynamic_steps is derived server-side as
+    # proxy_future_turns + 1 = 6.
+    "compact-qwen3_5-4b-te-ss-dynamic-pft5-r0.2": {
+        "model_name": "compact-qwen3.5-4b",
+        "base_url": _COMPACT_BASE_URL,
+        "api_key": "unused",
+        "is_claude_thinking": False,
+        "default_system_prompt": "",
+        "generate_kwargs": {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "max_new_tokens": 4096,
+            "presence_penalty": 1.5,
+        },
+        "compact_config": {
+            "enabled": True,
+            "trigger": {"type": "every_turn"},
+            "use_uncompacted_latest": False,
+            "thinking_ratio": 0.2,
+            "tool_response_ratio": 0.2,
+            "proxy_future_turns": 5,
+            "dual_mode": False,
+            "query_method": "self_study",
+            "preserve_boundaries": True,
+            "preserve_specials": True,
+            "include_boundary_proxy": False,
+            "dynamic_compaction": True,
+            "optimize_beta": False,
+            "optimize_values": False,
+            "num_thinking_query_tokens": None,
+            "num_tool_response_query_tokens": None,
+            "algorithm_kwargs": {},
+        },
+    },
+
     # the concatenated proxy queries. RP+SS feeds the LSQ system with
     # both a teacher-forced replay forward (RP, run at push time per
     # BCP :1854-1875 to avoid pop-time cache pollution) and natural
