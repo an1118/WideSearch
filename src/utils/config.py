@@ -226,6 +226,52 @@ model_config = {
             "algorithm_kwargs": {},
         },
     },
+    # Non-dynamic pft=5 one-shot BASELINE for the dynamic-compaction comparison.
+    # Identical SS + TE setting (self_study, pft=5, ratio 0.2, preserve
+    # boundaries+specials, same sampling) but dynamic_compaction=False, so each
+    # turn is held full in the delayed buffer until a single one-shot compaction
+    # on eviction. This is the apples-to-apples reference for
+    # compact-qwen3_5-4b-te-ss-dynamic-pft5-r0.2: dynamic's frozen (steady-state)
+    # cache is designed to match this one-shot result, so SCORES should track
+    # closely while dynamic decodes faster (smaller in-flight window).
+    #
+    # BCP flags mirrored (no --dynamic-compaction):
+    #   --query-method self_study --proxy-future-turns 5
+    #   --thinking-ratio 0.2 --tool-response-ratio 0.2
+    #   --preserve-boundaries --preserve-specials
+    #   (TE flavor: neither --optimize-beta nor --optimize-values)
+    "compact-qwen3_5-4b-te-ss-pft5-r0.2": {
+        "model_name": "compact-qwen3.5-4b",
+        "base_url": _COMPACT_BASE_URL,
+        "api_key": "unused",
+        "is_claude_thinking": False,
+        "default_system_prompt": "",
+        "generate_kwargs": {
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "max_new_tokens": 4096,
+            "presence_penalty": 1.5,
+        },
+        "compact_config": {
+            "enabled": True,
+            "trigger": {"type": "every_turn"},
+            "use_uncompacted_latest": False,
+            "thinking_ratio": 0.2,
+            "tool_response_ratio": 0.2,
+            "proxy_future_turns": 5,
+            "dual_mode": False,
+            "query_method": "self_study",
+            "preserve_boundaries": True,
+            "preserve_specials": True,
+            "include_boundary_proxy": False,
+            "dynamic_compaction": False,
+            "optimize_beta": False,
+            "optimize_values": False,
+            "num_thinking_query_tokens": None,
+            "num_tool_response_query_tokens": None,
+            "algorithm_kwargs": {},
+        },
+    },
     # Dynamic (progressive) token-eviction: mirrors kv_compact's
     # scripts/run_te_dynamic.sh (qwen35-4b-te-ss-dynamic-pft5-r0.2). Same
     # SS + TE setting as the pft=5 delayed-buffer config but adds
