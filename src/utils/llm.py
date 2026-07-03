@@ -3,6 +3,8 @@
 
 from typing import Any, Iterable, List, Optional, Union
 
+import os
+
 from loguru import logger
 from openai import AzureOpenAI, OpenAI
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
@@ -174,7 +176,11 @@ def llm_completion(
         msgs = messages if isinstance(messages, list) else [
             {"role": "user", "content": messages}
         ]
-        client = _OpenAI(base_url=base_url, api_key=api_key, timeout=300)
+        client = _OpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=float(os.environ.get("JUDGE_TIMEOUT", "1200")),
+        )
         completion = client.chat.completions.create(
             messages=msgs,
             model=model_config[model_config_name].get("served_model_name", "qwen"),

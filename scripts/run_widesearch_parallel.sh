@@ -106,22 +106,35 @@ echo "[parallel] slice size ~${SLICE_SIZE} task/lane"
 
 WORKER_PIDS=()
 for i in $(seq 0 $((NGPU - 1))); do
-    START=$((i * SLICE_SIZE + 1))
-    END=$(((i + 1) * SLICE_SIZE))
-    if [ "${END}" -gt "${TOTAL}" ]; then END="${TOTAL}"; fi
-    if [ "${START}" -gt "${TOTAL}" ]; then
-        echo "[parallel] lane $i: no tasks (TOTAL=${TOTAL} reached); skipping"
-        continue
-    fi
+    # Determine this lane's instance_id list.
+    if [ -n "${LANE_IDS_FILE:-}" ]; then
+        # Explicit per-lane IDs: line (i+1) of LANE_IDS_FILE is a comma-sep
+        # instance_id list for lane i. Used for mixed en+zh sharding
+        # (see scripts/make_mixed_shards.py). INSTANCE_PREFIX/TOTAL ignored.
+        IDS=$(sed -n "$((i + 1))p" "${LANE_IDS_FILE}")
+        if [ -z "${IDS}" ]; then
+            echo "[parallel] lane $i: no IDs on line $((i+1)) of ${LANE_IDS_FILE}; skipping"
+            continue
+        fi
+    else
+        START=$((i * SLICE_SIZE + 1))
+        END=$(((i + 1) * SLICE_SIZE))
+        if [ "${END}" -gt "${TOTAL}" ]; then END="${TOTAL}"; fi
+        if [ "${START}" -gt "${TOTAL}" ]; then
+            echo "[parallel] lane $i: no tasks (TOTAL=${TOTAL} reached); skipping"
+            continue
+        fi
 
-    # Build comma-separated instance_id list for this slice.
-    IDS=$(seq -f "${INSTANCE_PREFIX}_%03g" "${START}" "${END}" | paste -sd, -)
+        # Build comma-separated instance_id list for this slice.
+        IDS=$(seq -f "${INSTANCE_PREFIX}_%03g" "${START}" "${END}" | paste -sd, -)
+    fi
 
     LOCAL_PORT=$((LOCAL_PORT_BASE + i))
     LOG="/tmp/widesearch_worker${i}.log"
     : > "${LOG}"
 
     COMPACT_BASE_URL="http://localhost:${LOCAL_PORT}" \
+    EVAL_BASE_URL="${EVAL_BASE_URL:-}" \
     URL_MAP_MODE="${URL_MAP_MODE}" \
     BING_APPID="${BING_APPID}" \
     JINA_API_KEYS="${JINA_API_KEYS}" \
