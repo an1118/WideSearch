@@ -146,6 +146,7 @@ class WideSearchResponse:
     response: str
     messages: Optional[list[dict]] = None
     trial_idx: Optional[int] = None
+    compaction_stats: Optional[list] = None
 
     def extract_dataframe(self) -> pd.DataFrame | None:
         response_df = None

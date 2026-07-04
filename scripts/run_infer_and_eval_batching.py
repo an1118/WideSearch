@@ -34,7 +34,11 @@ from src.evaluation.data_loader import (
     WideSearchResponseLoader,
 )
 from src.evaluation.evaluation import EvaluationResult, evaluate_single_query
-from src.utils.compact_client import delete_session, session_context
+from src.utils.compact_client import (
+    delete_session,
+    get_compaction_stats,
+    session_context,
+)
 from src.utils.config import model_config
 
 logger.remove()
@@ -133,6 +137,7 @@ class SingleTask:
                     response=response,
                     messages=messages,
                     trial_idx=self.trial_idx,
+                    compaction_stats=get_compaction_stats() if is_compact else None,
                 )
             ]
 

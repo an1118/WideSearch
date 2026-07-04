@@ -64,10 +64,29 @@ _session_id: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
     "compact_session_id", default=None,
 )
 
+# Parallel ContextVar accumulates the per-call ``compaction_info`` records the
+# pod returns, so the trajectory's full compaction-stats list can be persisted
+# alongside the response. Holds a mutable list initialized once per
+# ``session_context``; ``complete()`` only APPENDS to it (never reassigns), so
+# accumulation is robust even when ``complete()`` runs in a child context
+# (asyncio task / thread) that inherits the same list object by reference.
+_compaction_stats: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
+    "compact_compaction_stats", default=None,
+)
+
 
 def get_session_id() -> Optional[str]:
     """Return the active session id, or None if no `session_context` is open."""
     return _session_id.get()
+
+
+def get_compaction_stats() -> list:
+    """Return the ``compaction_info`` records accumulated during the active
+    ``session_context`` (empty list if no context is open or no compaction
+    happened). Each element is the pod's per-call ``compaction_info`` dict
+    (BCP-parity 23-field schema)."""
+    acc = _compaction_stats.get()
+    return list(acc) if acc is not None else []
 
 
 @contextmanager
@@ -95,10 +114,12 @@ def session_context(instance_id: str, trial_idx: int) -> Iterator[str]:
     """
     sid = f"{instance_id}_trial{trial_idx}_{uuid.uuid4().hex[:8]}"
     token = _session_id.set(sid)
+    stats_token = _compaction_stats.set([])
     try:
         yield sid
     finally:
         _session_id.reset(token)
+        _compaction_stats.reset(stats_token)
 
 
 def _sanitize_messages_for_pod(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -208,6 +229,14 @@ def complete(
     response = requests.post(url, json=payload, timeout=timeout)
     response.raise_for_status()
     body = response.json()
+
+    # Accumulate this call's compaction stats (if any) into the session-scoped
+    # list. APPEND only (never reassign) so it propagates across child contexts.
+    info = body.get("compaction_info")
+    if info is not None:
+        acc = _compaction_stats.get()
+        if acc is not None:
+            acc.append(info)
 
     msg = body["message"]
     raw_tool_calls = msg.get("tool_calls") or []
