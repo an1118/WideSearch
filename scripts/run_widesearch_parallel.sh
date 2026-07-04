@@ -148,7 +148,8 @@ for i in $(seq 0 $((NGPU - 1))); do
         --url_map_mode "${URL_MAP_MODE}" \
         > "${LOG}" 2>&1 &
     WORKER_PIDS+=($!)
-    echo "[parallel] lane $i: tasks ${START}..${END} (${IDS:0:50}...) -> :${LOCAL_PORT} pid $!"
+    NTASK=$(echo "${IDS}" | tr ',' '\n' | grep -c .)
+    echo "[parallel] lane $i: ${NTASK} tasks (${IDS:0:50}...) -> :${LOCAL_PORT} pid $!"
 done
 
 # ---- 4. wait for all workers ----
