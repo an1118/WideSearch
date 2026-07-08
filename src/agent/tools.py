@@ -240,6 +240,15 @@ async def search_global(
     summary_type: str = "short",
     use_english: bool = False,
 ):
+    # Some models (e.g. Gemma-4) serialize numeric tool-call arguments as JSON
+    # strings ("10"). The `int` type hint is not enforced at runtime, so coerce
+    # defensively — otherwise the `count > 50` comparison and the downstream
+    # Bing request raise TypeError ('>' not supported between str and int),
+    # which surfaces to the model as a tool failure and makes it give up early.
+    try:
+        count = int(count)
+    except (TypeError, ValueError):
+        count = 10
     if not query:
         return InternalResponse(
             error=return_error(
@@ -360,7 +369,10 @@ async def search_global(
 
 
 @timeout_handler(timeout=120)
-async def text_browser_view(url: str, description: str):
+async def text_browser_view(url: str, description: str = ""):
+    # ``description`` is optional context only. Some models (e.g. Gemma-4) omit
+    # it; keep a default so the call doesn't raise "missing required positional
+    # argument: 'description'" (a TypeError the model sees as a tool failure).
     # If the model passed a doc_id from search_global (e.g. "doc_3"), resolve
     # it to the real URL via the per-session map. Raw URLs pass through
     # unchanged. Unknown doc_ids fall through too — downstream fetch will
