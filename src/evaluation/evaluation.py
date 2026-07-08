@@ -225,7 +225,17 @@ def evaluate_single_query(
             df_inner_score = pd.DataFrame(index=df_inner.index)
             df_inner_msg = pd.DataFrame(index=df_inner.index)
 
+            # When the response shares no unique-key values with the answer,
+            # the inner join is empty. Skip per-column scoring in that case:
+            # there are no matched rows/items, so tp_by_row / tp_by_item are 0
+            # (computed below on the empty df_inner_score). Running the metric
+            # loop on an empty df_inner would call ``df_inner.apply(func,
+            # axis=1)``, which returns the empty DataFrame (not a Series) and
+            # crashes the column assignment with "Cannot set a DataFrame with
+            # multiple columns to the single column ...".
             for col in required_columns:
+                if len(df_inner) == 0:
+                    break
                 if col in unique_columns:
                     df_inner_score[f"{col}_exact_match"] = 1.0
                     df_inner_msg[f"{col}_exact_match_eval_msg"] = "key_match"
