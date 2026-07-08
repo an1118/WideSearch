@@ -27,3 +27,4 @@ data/e2e_output/*
 
 !template*
 data/*
+logs/

@@ -37,6 +37,10 @@ TRIAL_NUM="${TRIAL_NUM:-1}"
 STAGE="${STAGE:-both}"
 LOCAL_PORT_BASE="${LOCAL_PORT_BASE:-18080}"
 POD_PORT_BASE="${POD_PORT_BASE:-8080}"
+# Log path prefixes — override to run a second parallel batch (e.g. a comparison
+# run on a different pod) without clobbering the first batch's worker/pf logs.
+WORKER_LOG_PREFIX="${WORKER_LOG_PREFIX:-/tmp/widesearch_worker}"
+PF_LOG_PREFIX="${PF_LOG_PREFIX:-/tmp/pf_widesearch_gpu}"
 
 # Sanity: required env vars for tool layer
 : "${BING_APPID:?BING_APPID required for Bing search}"
@@ -55,7 +59,7 @@ PF_PIDS=()
 for i in $(seq 0 $((NGPU - 1))); do
     LOCAL_PORT=$((LOCAL_PORT_BASE + i))
     POD_PORT=$((POD_PORT_BASE + i))
-    LOG="/tmp/pf_widesearch_gpu${i}.log"
+    LOG="${PF_LOG_PREFIX}${i}.log"
     : > "${LOG}"
     nohup kubectl --context "${CTX}" -n "${NAMESPACE}" port-forward \
         --address 127.0.0.1 "pod/${POD_ID}" "${LOCAL_PORT}:${POD_PORT}" \
@@ -130,7 +134,7 @@ for i in $(seq 0 $((NGPU - 1))); do
     fi
 
     LOCAL_PORT=$((LOCAL_PORT_BASE + i))
-    LOG="/tmp/widesearch_worker${i}.log"
+    LOG="${WORKER_LOG_PREFIX}${i}.log"
     : > "${LOG}"
 
     COMPACT_BASE_URL="http://localhost:${LOCAL_PORT}" \
@@ -155,7 +159,7 @@ done
 # ---- 4. wait for all workers ----
 echo ""
 echo "[parallel] ${#WORKER_PIDS[@]} workers running. Streaming progress:"
-echo "  tail -F /tmp/widesearch_worker{0..$((NGPU-1))}.log"
+echo "  tail -F ${WORKER_LOG_PREFIX}{0..$((NGPU-1))}.log"
 echo ""
 
 # Wait on each PID, surface non-zero exits but don't abort the whole batch.
