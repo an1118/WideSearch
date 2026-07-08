@@ -24,6 +24,7 @@ from src.agent.prompt import (
     get_multi_agent_system_prompt,
     get_system_prompt,
     get_tools_api_description,
+    get_persistence_preamble,
 )
 from src.agent.run import run_single_query
 from src.agent.tools import _default_tools
@@ -97,18 +98,22 @@ class SingleTask:
 
             logger.info(f"infer start, instance_id: {self.query.instance_id}")
             start_time = time.time()
+            # Gemma-family configs get an aggressive persistence preamble
+            # prepended (empty string for non-Gemma → Qwen unchanged).
+            _persist = get_persistence_preamble(
+                self.model_config_name, self.query.language)
             if self.multi_agent:
                 tools = get_multi_agent_tools(
                     f"{self.query.instance_id}_{self.trial_idx}_sub_agent",
                     self.model_config_name,
                     self.tools,
                     get_tools_api_description(self.query.language, list(self.tools.keys())),
-                    get_system_prompt(self.query.language),
+                    _persist + get_system_prompt(self.query.language),
                 )
-                system_prompt = get_multi_agent_system_prompt(self.query.language)
+                system_prompt = _persist + get_multi_agent_system_prompt(self.query.language)
             else:
                 tools = self.tools
-                system_prompt = get_system_prompt(self.query.language)
+                system_prompt = _persist + get_system_prompt(self.query.language)
 
             tools_desc = get_tools_api_description(self.query.language, list(tools.keys()))
             # Compact backend: any LLM error means the pod-side session was

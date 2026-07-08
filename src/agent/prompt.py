@@ -43,6 +43,69 @@ To help you complete tasks better and faster, I have provided you with three too
 3. Sub Agent: The Sub Agent can complete various types of tasks according to the prompt you input. The Sub Agent itself can also use the search tool and the link reading tool. You can split your tasks into multiple sub-tasks according to your own needs, and then create one or more Agents to help you complete these sub-tasks in parallel.
 """
 
+
+# ---------------------------------------------------------------------------
+# Model-family persistence preamble (Gemma).
+#
+# Gemma-4-E4B tends to stop after a handful of turns — it browses one page,
+# gets partial/gated data, writes "Data Unavailable" and quits, often without
+# opening the good sources already in its own search results. This mirrors the
+# behaviour BCP (run_browsecomp_evaluation.py) counters for Gemma with an
+# aggressive "never give up" prompt (build_messages_v5 / V5_SYSTEM_PROMPT).
+# We prepend a WideSearch-adapted version (retargeted to search_global /
+# text_browser_view and the table-filling task) for Gemma-family configs only,
+# so Qwen runs stay unchanged and comparable. Floors are the key tunable.
+# ---------------------------------------------------------------------------
+gemma_persistence_preamble_en = """# CRITICAL — PERSISTENCE RULES (read FIRST; they override any urge to stop early)
+You are an EXHAUSTIVE research agent. The ONLY acceptable outcome is a COMPLETE, fully-filled answer table. Giving up is NOT an option.
+
+HARD RULES — obey ALL of them:
+1. NEVER produce a final answer until you have data for EVERY required cell. A partial or mostly-empty table is a FAILURE, not an answer.
+2. SEARCH FLOOR — issue AT LEAST 15 `search_global` calls, each from a DIFFERENT angle (vary keywords, phrasing, language, and target sources) before answering.
+3. BROWSE FLOOR — call `text_browser_view` on AT LEAST 8 promising result URLs. Search snippets are TRUNCATED; the real data (ranking tables, lists, figures) lives INSIDE the pages. Searching without opening pages is INSUFFICIENT.
+4. NEVER write "Data Unavailable", "N/A", "not found", "cannot determine", "not retrievable", "impossible", or leave a cell blank — UNLESS you have already run several searches AND opened several pages for that specific cell.
+5. IF A PAGE IS GATED / BLOCKED / TRUNCATED (e.g. a ranking site shows only the #1 entry), DO NOT conclude the data is unavailable — open the OTHER results from your search (official sites, news articles, PDFs, aggregators, mirrors). The data almost always exists on an alternative source.
+6. DECOMPOSE the table into its columns and rows; search each criterion systematically, then combine. CROSS-VERIFY every value against a second independent source before committing it.
+
+More searches and more page-reads always yield a more complete table. Shallow investigation is the #1 cause of failure. Stay in the search-and-browse loop until the table is complete — THEN output it in the exact requested format.
+
+"""
+
+gemma_persistence_preamble_zh = """# 关键 — 持续搜索规则（请最先阅读；这些规则优先于任何提前停止的冲动）
+你是一个"穷尽式"研究智能体。唯一可接受的结果是一张完整、每个单元格都已填写的答案表格。放弃不是一个选项。
+
+必须遵守的硬性规则：
+1. 在为表格中每一个必需的单元格都获取到数据之前，绝不给出最终答案。部分完成或大部分为空的表格是失败，而不是答案。
+2. 搜索下限 —— 在给出最终答案之前，必须发起至少 15 次 `search_global` 调用，每次都从不同角度出发（变换关键词、表述、语言和目标来源）。
+3. 浏览下限 —— 必须对至少 8 个有价值的结果链接调用 `text_browser_view`。搜索摘要是被截断的；真正的数据（排名表、列表、数字）在页面内部，只搜索而不打开页面是远远不够的。
+4. 绝不写"数据不可用""N/A""未找到""无法确定""无法获取""不可能"，也不要留空单元格 —— 除非你已针对该特定单元格进行了多次搜索并打开了多个页面仍一无所获。
+5. 如果某个页面被封锁/受限/被截断（例如排名网站只显示第一名），不要据此断定数据不可用 —— 打开你搜索结果中的其他链接（官方网站、新闻文章、PDF、聚合网站、镜像站）。数据几乎总能在其他来源找到。
+6. 将所求表格分解为各个列和行；系统地为每个条件搜索，然后组合。对每一个候选值，在确定之前用第二个独立来源交叉验证。
+
+更多的搜索和更多的页面阅读总能得到更完整的表格。浅尝辄止是失败的头号原因。请保持在"搜索—浏览"的循环中，直到表格完整 —— 然后再按要求的确切格式输出。
+
+"""
+
+
+def get_persistence_preamble(model_config_name: str, language: str) -> str:
+    """Return a language-matched persistence preamble for Gemma-family configs.
+
+    Empty string for any non-Gemma config (Qwen etc. are left unchanged), so
+    this is a Gemma-only, parity-safe augmentation. Dispatch is by model family
+    (``model_name`` prefix), mirroring BCP's ``model_type``-based prompt pick.
+    """
+    try:
+        from src.utils.config import model_config
+
+        model_name = model_config.get(model_config_name, {}).get("model_name", "")
+    except Exception:
+        model_name = ""
+    if not model_name.startswith("compact-gemma4-e4b"):
+        return ""
+    if language == "zh":
+        return gemma_persistence_preamble_zh
+    return gemma_persistence_preamble_en
+
 tools_api_description_zh_map = {
     "search_bing": {
         "type": "function",
