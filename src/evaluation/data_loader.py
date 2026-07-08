@@ -148,8 +148,34 @@ class WideSearchResponse:
     trial_idx: Optional[int] = None
     compaction_stats: Optional[list] = None
 
+    def _parse_one_table(self, table_str: str) -> "pd.DataFrame | None":
+        """Parse a single markdown-table string into a DataFrame.
+
+        Returns None (never raises) if the string is a placeholder/echo
+        (e.g. ``{数据内容}``), has no table rows, or fails to parse. Holds the
+        exact cleaning that ``extract_dataframe`` historically applied to the
+        chosen block.
+        """
+        lines = table_str.strip().split("\n")
+        if not lines:
+            return None
+        lines[0] = lines[0].replace(" ", "").lower()  # columns
+        lines = [line.strip() for line in lines]
+        new_lines = []
+        for line in lines:
+            if set(line.strip()).issubset(set("|- :")) or "|" not in line:
+                continue
+            new_lines.append("|".join([_line.strip() for _line in line.split("|")]))
+        if not new_lines:
+            return None
+        try:
+            df = pd.read_csv(StringIO("\n".join(new_lines)), sep="|")
+            df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
+        except Exception:
+            return None
+        return df
+
     def extract_dataframe(self) -> pd.DataFrame | None:
-        response_df = None
         markdown_str = re.findall(r"```markdown(.*?)```", self.response, re.DOTALL)
         if not markdown_str:
             pipe_positions = [m.start() for m in re.finditer(r"\|", self.response)]
@@ -162,26 +188,20 @@ class WideSearchResponse:
                 end = len(self.response) if end == -1 else end
                 table_candidate = self.response[start:end]
                 markdown_str = re.findall(r"((?:\|.*\n?)+)", table_candidate)
-        if markdown_str:
-            logger.debug(f"find markdown_str {markdown_str[0][:64]} ...")
-            markdown_str = markdown_str[0].strip()
-            lines = markdown_str.split("\n")
-            lines[0] = lines[0].replace(" ", "").lower()  # columns
-            lines = [line.strip() for line in lines]
-            new_lines = []
-            for line in lines:
-                if set(line.strip()).issubset(set("|- :")) or "|" not in line:
-                    continue
-                new_lines.append("|".join([_line.strip() for _line in line.split("|")]))
-            markdown_str = "\n".join(new_lines)
-            response_df = pd.read_csv(StringIO(markdown_str), sep="|")
-            response_df = response_df.loc[
-                :, ~response_df.columns.str.startswith("Unnamed")
-            ]
-
-        else:
-            logger.error(f"response {self.response} not found markdown_str")
-        return response_df
+        # Pick the FIRST candidate block that yields a non-empty table. Was:
+        # markdown_str[0] unconditionally — which broke when the model echoed
+        # the task's markdown format template (e.g. ```markdown{数据内容}```) as
+        # the first block, parsing the empty placeholder (crash/None -> f1=0)
+        # while the real table sat in a later block. Skipping empty/unparseable
+        # blocks is non-regressive: when block[0] is already a real table it is
+        # returned unchanged.
+        for candidate in markdown_str:
+            df = self._parse_one_table(candidate)
+            if df is not None and len(df) > 0:
+                logger.debug(f"extract_dataframe: using block {candidate[:64]} ...")
+                return df
+        logger.error(f"response {self.response} not found markdown_str")
+        return None
 
 
 class WideSearchResponseLoader:
